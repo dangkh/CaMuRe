@@ -16,9 +16,6 @@ import torch_geometric
 from common.abstract_recommender import GeneralRecommender
 from common.loss import BPRLoss, EmbLoss
 from common.init import xavier_uniform_initialization
-from torch.nn import MultiheadAttention
-from .diffusion import  ConditionalDDPM, ConditionalUNet
-from .transformer import TransformerEncoder
 
 class CAMU(GeneralRecommender):
     def __init__(self, config, dataset):
@@ -115,7 +112,7 @@ class CAMU(GeneralRecommender):
         pos_item_nodes += self.n_users
         neg_item_nodes += self.n_users
 
-        item_feat = self.mlp_item(self.t_feat)
+        # item_feat = self.mlp_item(self.t_feat)
         
         # self.t_rep, self.t_preference = self.t_gcn(self.edge_index, item_feat)
         self.id_rep, self.id_preference = self.id_gcn(self.edge_index, self.id_embedding.weight)
