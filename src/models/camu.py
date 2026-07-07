@@ -20,9 +20,9 @@ from torch.nn import MultiheadAttention
 from .diffusion import  ConditionalDDPM, ConditionalUNet
 from .transformer import TransformerEncoder
 
-class COLDREC(GeneralRecommender):
+class CAMU(GeneralRecommender):
     def __init__(self, config, dataset):
-        super(COLDREC, self).__init__(config, dataset)
+        super(CAMU, self).__init__(config, dataset)
 
         num_user = self.n_users
         num_item = self.n_items
@@ -49,12 +49,6 @@ class COLDREC(GeneralRecommender):
         self.dim_latent = 64
         self.mm_adj = None
         self.config = config
-        diffSteps = config['diffusion_steps']
-        self.forwardSteps = diffSteps[0]
-        self.inferSteps = diffSteps[1]
-        self.g_value = config['guidance_strength']
-        self.noise_schedule = config['noise_schedule']
-        self.noise_scale = config['noise_scale']
         dataset_path = os.path.abspath(config['data_path'] + config['dataset'])
         
         mm_adj_file = os.path.join(dataset_path, 'mm_adj_{}.pt'.format(self.knn_k))
@@ -73,29 +67,12 @@ class COLDREC(GeneralRecommender):
         self.edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous().to(self.device)
         self.edge_index = torch.cat((self.edge_index, self.edge_index[[1, 0]]), dim=1)
 
-        self.t_gcn = GCN(self.dataset, batch_size, num_user, num_item, dim_x, self.aggr_mode,
-                        num_layer=self.num_layer, has_feature=True, dropout=self.drop_rate, dim_latent=64,
-                        device=self.device, features=self.t_feat, user_profile=self.user_feat)
+        # self.t_gcn = GCN(self.dataset, batch_size, num_user, num_item, dim_x, self.aggr_mode,
+        #                 num_layer=self.num_layer, has_feature=True, dropout=self.drop_rate, dim_latent=64,
+        #                 device=self.device, features=self.t_feat, user_profile=self.user_feat)
         self.id_gcn = GCN(self.dataset, batch_size, num_user, num_item, dim_x, self.aggr_mode,
                         num_layer=self.num_layer, has_feature=False, dropout=self.drop_rate, dim_latent=64,
                         device=self.device, features=self.id_embedding.weight)
-        if config['fusion'] == 'diffusion':
-            self.unet = ConditionalUNet(
-                emb_dim=self.feat_embed_dim,
-                time_emb_dim= 8,
-                hidden_dim= self.feat_embed_dim * 2,
-                text_emb_dim= self.feat_embed_dim)
-            self.diffusion_model = ConditionalDDPM(self.unet, self.forwardSteps, noiseScale=self.noise_scale, schedule=self.noise_schedule)
-            self.countE = 0
-        elif config['fusion'] in ['add', 'pool']:
-            pass
-        elif config['fusion'] == 'Multi-Head Attention':
-            self.multihead_attn = nn.MultiheadAttention(embed_dim=64, num_heads=4)
-        elif config['fusion'] == 'Transformer':
-            self.transformer = TransformerEncoder(64, num_heads= 4, layers=2)
-        else:
-            print("*"*30)
-            print("No LLM Fusion")
         
 
 
@@ -139,44 +116,20 @@ class COLDREC(GeneralRecommender):
         neg_item_nodes += self.n_users
 
         item_feat = self.mlp_item(self.t_feat)
-        user_feat = F.normalize(self.mlp_user(self.user_feat)) # LLM generated user profiles
         
-        self.t_rep, self.t_preference = self.t_gcn(self.edge_index, item_feat)
+        # self.t_rep, self.t_preference = self.t_gcn(self.edge_index, item_feat)
         self.id_rep, self.id_preference = self.id_gcn(self.edge_index, self.id_embedding.weight)
 
-        item_repT = self.t_rep[self.num_user:]
-        item_repI = self.id_rep[self.num_user:]
+        # item_repT = self.t_rep[self.num_user:]
+        item_rep = self.id_rep[self.num_user:]
 
-        item_rep = torch.cat((item_repT, item_repI), dim=1)
+        # item_rep = torch.cat((item_repT, item_repI), dim=1)
         item_rep = self.item_item(item_rep)
 
-        user_repT = self.t_rep[:self.num_user]
-        user_repI = self.id_rep[:self.num_user]
+        # user_repT = self.t_rep[:self.num_user]
+        user_rep = self.id_rep[:self.num_user]
 
-        if self.config['fusion'] == 'diffusion':
-            self.lossD = self.diffusion_model.train_diff(user_feat, user_repT)
-            generated_cid = self.diffusion_model.sample(
-                cid=user_feat, # 
-                text_emb=user_repT, # condition signal
-                infer_step= self.inferSteps,
-                shape=user_repT.shape,
-                guidance_scale=self.g_value  # stronger guidance
-            )
-            userRepT = user_repT + generated_cid
-        elif self.config['fusion'] == 'add':
-            userRepT = user_repT + user_feat
-        elif self.config['fusion'] == 'pool':
-            userRepT = (user_repT + user_feat) / 2
-        elif self.config['fusion'] == 'Multi-Head Attention':
-            output, _ = self.multihead_attn(user_repT.unsqueeze(0), user_feat.unsqueeze(0), user_feat.unsqueeze(0))
-            output = output.squeeze(0)
-            userRepT = output + user_repT
-        elif self.config['fusion'] == 'Transformer':
-            output = self.transformer(user_repT.unsqueeze(0), user_feat.unsqueeze(0), user_feat.unsqueeze(0)).squeeze(0)
-            userRepT = output + user_repT
-        else:
-            raise NotImplementedError
-        user_rep = torch.cat((userRepT, user_repI), dim=1)
+        # user_rep = torch.cat((userRepT, user_repI), dim=1)
 
         self.result_embed = torch.cat((user_rep, item_rep), dim=0)
         user_tensor = self.result_embed[user_nodes]
@@ -189,12 +142,6 @@ class COLDREC(GeneralRecommender):
     def calculate_loss(self, interaction):
         pos_scores, neg_scores = self.forward(interaction)
         loss_value = -torch.mean(torch.log2(torch.sigmoid(pos_scores - neg_scores)))
-        if self.config['fusion'] == 'diffusion':
-            ceoff = 0.5
-            if self.countE < 100:
-                ceoff = 1.0
-                self.countE += 1
-            return loss_value + ceoff * self.lossD
         return loss_value
 
     def full_sort_predict(self, interaction):

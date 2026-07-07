@@ -1,1 +1,1 @@
-# CaMuRe
+# CaMuRe: Casual Multmodal Recommendation
