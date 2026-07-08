@@ -101,11 +101,6 @@ class CAMU(GeneralRecommender):
         cols = inter_mat.col + self.n_users
         return np.column_stack((rows, cols))
 
-    def item_item(self, rep):
-        h = rep
-        for i in range(self.n_layers):
-            h = torch.sparse.mm(self.mm_adj, h)
-        return rep + h
 
     def forward(self, interaction):
         user_nodes, pos_item_nodes, neg_item_nodes = interaction[0], interaction[1], interaction[2]
@@ -121,7 +116,6 @@ class CAMU(GeneralRecommender):
         item_rep = self.id_rep[self.num_user:]
 
         # item_rep = torch.cat((item_repT, item_repI), dim=1)
-        item_rep = self.item_item(item_rep)
 
         # user_repT = self.t_rep[:self.num_user]
         user_rep = self.id_rep[:self.num_user]
